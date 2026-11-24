@@ -217,7 +217,7 @@ function viewTrain() {
   if (S.active) return editorHTML(S.active, 'active');
   const rs = [...S.routines].sort((a, b) => a.name.localeCompare(b.name, 'nb'));
   const lastDone = name => { const w = S.workouts.find(x => x.name === name); return w ? fmtDate(w.start) : null; };
-  return `<h1>Workout</h1>
+  return `<h1 class="brand"><img src="icons/icon-192.png" alt="">Workout</h1>
   <button class="btn pri block" data-a="startEmpty">＋ Start empty workout</button>
   <div class="row between"><h2>Routines</h2><button class="btn sm" data-a="newRoutine">＋ New routine</button></div>
   ${rs.length ? rs.map(r => `
@@ -616,7 +616,7 @@ function viewMore() {
     <div>${S.workouts.length} workouts · ${S.routines.length} routines · ${S.custom.length} custom exercises</div>
     <button class="btn block bad" data-a="wipe">Delete all data</button>
   </div>
-  <p class="tiny mut">Exercise animations and descriptions: Open Exercise Figures (CC0). Muscle maps: body-highlighter (MIT).</p>
+  <p class="tiny mut">Exercise drawings: <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a> by Greg Priday, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>, cropped and combined into animations. Exercise descriptions: Open Exercise Figures (CC0). Muscle maps: body-highlighter (MIT).</p>
   <input type="file" id="fileStrong" accept=".csv,text/csv,text/plain" hidden>
   <input type="file" id="fileBackup" accept=".json,application/json" hidden>`;
 }
@@ -725,7 +725,7 @@ async function downloadImages() {
   const msg = $('#dlMsg'), prog = $('#dlProg');
   if (!('caches' in window)) { msg.textContent = 'This browser does not support offline storage.'; return; }
   const list = await (await fetch('images.json')).json();
-  const cache = await caches.open('media-v1');
+  const cache = await caches.open('media-v2');
   prog.hidden = false; let done = 0, fail = 0;
   const queue = [...list];
   const worker = async () => {

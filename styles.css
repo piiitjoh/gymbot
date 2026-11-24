@@ -12,6 +12,8 @@ input,select,textarea{font:inherit;color:var(--text);background:var(--card2);bor
 input:focus,select:focus{outline:2px solid var(--acc);outline-offset:-1px}
 #main{padding:12px 12px calc(var(--navh) + var(--safeb) + 90px)}
 h1{font-size:24px;margin:6px 0 12px}
+h1.brand{display:flex;align-items:center;gap:12px}
+h1.brand img{width:44px;height:44px;border-radius:10px;flex:none}
 h2{font-size:17px;margin:18px 0 8px}
 h3{font-size:15px;margin:0}
 .mut{color:var(--mut)}.small{font-size:13px}.tiny{font-size:12px}
