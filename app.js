@@ -522,6 +522,9 @@ function renderExList() {
 function viewExercise(t) {
   const x = exById(t.id), st = exStats(x.id);
   const imgs = x.a ? `<div class="anim"><img src="anim/${x.a}.webp" alt="" onerror="this.parentNode.remove()"></div>` : '';
+  const map = (x.pm && x.pm.length) ? bodyMapHTML(levelsForExercise(x), `<div class="bmleg tiny mut"><span style="background:${LEVEL_COL[4]}"></span>Primary <span style="background:${LEVEL_COL[2]}"></span>Secondary</div>`) : '';
+  // Drawing and muscle map side by side; either one alone if the other is missing
+  const vis = imgs && map ? `<div class="exvis">${imgs}<div class="exmap">${map}</div></div>` : imgs + map;
   const recs = st.n ? (st.bw ? `
      <div class="stat"><div class="v">${st.reps}</div><div class="l">Most reps in a set</div></div>
      <div class="stat"><div class="v">${st.totalReps}</div><div class="l">Most reps in a workout</div></div>` : `
@@ -533,9 +536,8 @@ function viewExercise(t) {
   const chartData = [...st.sessions].reverse().map(s => ({ t: s.w.start, v: st.bw ? s.reps : Math.round(s.rm * 10) / 10 })).filter(p => p.v > 0);
   const lim = t.lim || 15;
   return `<div class="vhead"><button class="icon-btn" data-a="back">‹</button><h1 class="ellip">${esc(x.name)}</h1></div>
-   ${imgs}
+   ${vis}
    <div class="small mut">${x.pm.map(m => MUSCLE[m] || m).join(', ') || 'Unknown muscle group'}${x.sm && x.sm.length ? ` (+ ${x.sm.map(m => MUSCLE[m] || m).join(', ')})` : ''} · ${EQUIP[x.eq] || x.eq}${x.ref && x.ref !== x.name ? `<br>Animation: ${esc(x.ref)}` : ''}</div>
-   ${(x.pm && x.pm.length) ? bodyMapHTML(levelsForExercise(x), `<div class="bmleg tiny mut"><span style="background:${LEVEL_COL[4]}"></span>Primary <span style="background:${LEVEL_COL[2]}"></span>Secondary</div>`) : ''}
    ${x.custom ? `<div class="row" style="margin-top:8px"><select data-a="customMuscle" data-id="${x.id}">${['', ...Object.keys(MUSCLE)].map(m => `<option value="${m}" ${x.pm[0] === m ? 'selected' : ''}>${m ? MUSCLE[m] : 'Choose muscle group'}</option>`).join('')}</select></div>` : ''}
    ${st.n ? `<h2>Records</h2><div class="stats">${recs}</div>
      <h2>${st.bw ? 'Best reps per workout' : 'Estimated 1RM over time'}</h2>${chartHTML(chartData)}` : '<p class="mut small" style="margin-top:14px">No logged sets yet.</p>'}
@@ -591,9 +593,11 @@ function viewMore() {
   <h2>Import and backup</h2>
   <div class="card">
     <button class="btn block" data-a="importStrong">📥 Import from Strong (CSV)</button>
+    <button class="btn block" data-a="importHevy">📥 Import from Hevy (CSV)</button>
+    <button class="btn block" data-a="exportHevy">📤 Export for Hevy (CSV)</button>
     <button class="btn block" data-a="exportBackup">💾 Export backup (JSON)</button>
     <button class="btn block" data-a="importBackup">♻️ Restore backup</button>
-    <div class="tiny mut">Data is stored only on this device. Back up regularly – deleting the app or browser data erases your history.</div>
+    <div class="tiny mut">Hevy only imports Strong's CSV format, so “Export for Hevy” writes a Strong-format file: in Hevy, use Settings → Export &amp; Import Data → Import Strong CSV. Data is stored only on this device. Back up regularly – deleting the app or browser data erases your history.</div>
     <div id="importMsg" class="small" style="margin-top:8px"></div>
   </div>
   <h2>Rest timer</h2>
@@ -616,8 +620,9 @@ function viewMore() {
     <div>${S.workouts.length} workouts · ${S.routines.length} routines · ${S.custom.length} custom exercises</div>
     <button class="btn block bad" data-a="wipe">Delete all data</button>
   </div>
-  <p class="tiny mut">Exercise drawings: <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a> by Greg Priday, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>, cropped and combined into animations. Exercise descriptions: Open Exercise Figures (CC0). Muscle maps: body-highlighter (MIT).</p>
+  <p class="tiny mut">Exercise drawings: <a href="https://github.com/bryllim/workout-guide" target="_blank" rel="noopener">Workout Guide</a> by Bryl Lim, partly based on <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a> by Greg Priday, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>, recoloured and combined into animations. Exercise descriptions: Open Exercise Figures (CC0). Muscle maps: body-highlighter (MIT).</p>
   <input type="file" id="fileStrong" accept=".csv,text/csv,text/plain" hidden>
+  <input type="file" id="fileHevy" accept=".csv,text/csv,text/plain" hidden>
   <input type="file" id="fileBackup" accept=".json,application/json" hidden>`;
 }
 
@@ -643,6 +648,11 @@ function slugName(s) { return 'c_' + s.toLowerCase().replace(/[^a-z0-9æøå]+/g
 async function importStrong(text) {
   const rows = parseCSV(text);
   if (!rows.length || !('Exercise Name' in rows[0])) throw new Error('Strong columns not found (Exercise Name, Set Order …)');
+  return importRows(rows, 'strong');
+}
+// Shared by the Strong and Hevy imports: rows in Strong's CSV layout. Workout ids come from the start
+// time, so a workout that exists in both a Strong and a Hevy export is only imported once.
+async function importRows(rows, src) {
   const wKey = Object.keys(rows[0]).find(k => /^Weight/i.test(k));
   const lbs = wKey && /lb/i.test(wKey);
   const byName = new Map(allExercises().map(x => [x.name.toLowerCase(), x]));
@@ -660,7 +670,7 @@ async function importStrong(text) {
     if (!w) {
       const start = parseDate(r['Date']);
       const dur = parseFloat(r['Duration (sec)']) || (parseFloat(r['Duration']) || 0);
-      w = { id: 'strong-' + r['Date'].replace(/\D/g, ''), name: r['Workout Name'] || 'Workout', start, end: start + dur * 1000, src: 'strong', notes: r['Workout Notes'] || '', ex: [] };
+      w = { id: 'strong-' + r['Date'].replace(/\D/g, ''), name: r['Workout Name'] || 'Workout', start, end: start + dur * 1000, src, notes: r['Workout Notes'] || '', ex: [] };
       ws.set(key, w);
     }
     const eid = resolve(r['Exercise Name']);
@@ -701,7 +711,75 @@ async function importStrong(text) {
   return `✅ Read ${list.length} workouts (${added.length} new), ${setsN} sets. ${newCustom.length ? `${newCustom.length} custom exercises created. ` : ''}${newRoutines.length ? `Routines created: ${newRoutines.map(r => esc(r.name)).join(', ')}.` : ''}`;
 }
 
+// ---------- Hevy CSV ----------
+// Hevy's workout export: title, start_time, end_time, description, exercise_title, superset_id,
+// exercise_notes, set_index, set_type, weight_kg | weight_lbs, reps, distance_km | distance_miles,
+// duration_seconds, rpe. Dates look like "26 Mar 2024, 18:05" (ISO is accepted too).
+const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function parseHevyDate(s) {
+  const m = String(s).match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (m && MONTHS[m[2].toLowerCase()] != null) return new Date(+m[3], MONTHS[m[2].toLowerCase()], +m[1], +m[4], +m[5], +(m[6] || 0)).getTime();
+  const t = Date.parse(s); return isNaN(t) ? null : t;
+}
+const pad2 = n => String(n).padStart(2, '0');
+function strongDate(t) { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`; }
+async function importHevy(text) {
+  const rows = parseCSV(text);
+  if (!rows.length || !('exercise_title' in rows[0]) || !('start_time' in rows[0])) throw new Error('Hevy columns not found (exercise_title, start_time …)');
+  const lbs = !('weight_kg' in rows[0]) && 'weight_lbs' in rows[0];
+  const miles = !('distance_km' in rows[0]) && 'distance_miles' in rows[0];
+  const TYPE = { warmup: 'W', dropset: 'D', failure: 'F' };
+  const out = []; let lastKey = '', n = 0, first = true;
+  for (const r of rows) {
+    const start = parseHevyDate(r.start_time);
+    if (start == null) throw new Error(`Unreadable date in Hevy file: “${r.start_time}”`);
+    const end = parseHevyDate(r.end_time);
+    const date = strongDate(start);
+    const exKey = date + '|' + r.title + '|' + r.exercise_title;
+    if (exKey !== lastKey) { lastKey = exKey; n = 0; first = true; }
+    // every row carries every column, so the shared importer finds them on the first row
+    const base = { 'Date': date, 'Workout Name': r.title || 'Workout', 'Duration (sec)': end && end > start ? Math.round((end - start) / 1000) : 0, 'Exercise Name': r.exercise_title, 'Set Order': '', 'Weight (kg)': '', 'Reps': '', 'RPE': '', 'Distance (meters)': '', 'Seconds': '', 'Notes': '', 'Workout Notes': r.description || '' };
+    if (first && r.exercise_notes) out.push({ ...base, 'Set Order': 'Note', 'Notes': r.exercise_notes });
+    first = false;
+    const type = TYPE[(r.set_type || '').toLowerCase()];
+    if (!type) n++;
+    let kg = num(lbs ? r.weight_lbs : r.weight_kg); if (kg != null && lbs) kg = Math.round(kg * 0.45359237 * 4) / 4;
+    let dist = num(miles ? r.distance_miles : r.distance_km); if (dist != null) dist = Math.round(dist * (miles ? 1609.344 : 1000));
+    out.push({ ...base, 'Set Order': type || String(n), 'Weight (kg)': kg ?? '', 'Reps': r.reps, 'RPE': r.rpe, 'Distance (meters)': dist ?? '', 'Seconds': r.duration_seconds, 'Notes': '' });
+  }
+  return importRows(out, 'hevy');
+}
+// Hevy imports only Strong CSV files, so export in Strong's layout (kg, English headers).
+async function exportHevy() {
+  const H = ['Workout #', 'Date', 'Workout Name', 'Duration (sec)', 'Exercise Name', 'Set Order', 'Weight (kg)', 'Reps', 'RPE', 'Distance (meters)', 'Seconds', 'Notes', 'Workout Notes'];
+  const q = v => { v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  const lines = [H.join(',')];
+  const ws = [...S.workouts].sort((a, b) => a.start - b.start);
+  let sets = 0;
+  ws.forEach((w, i) => {
+    const dur = w.end && w.end > w.start ? Math.round((w.end - w.start) / 1000) : 0;
+    for (const e of w.ex) {
+      let n = 0;
+      for (const s of e.sets.filter(s => s.done)) {
+        const order = s.t === 'w' ? 'W' : s.t === 'd' ? 'D' : s.t === 'f' ? 'F' : String(++n);
+        lines.push([i + 1, strongDate(w.start), w.name || 'Workout', dur, exById(e.eid).name, order, s.kg || 0, s.reps || 0, s.rpe ?? '', s.dist ?? '', s.sec ?? '', s.note || '', w.notes || ''].map(q).join(','));
+        sets++;
+      }
+    }
+  });
+  if (!sets) throw new Error('No workouts to export.');
+  await shareFile(`gymbot-for-hevy-${new Date().toISOString().slice(0, 10)}.csv`, lines.join('\n') + '\n', 'text/csv');
+  return `✅ Exported ${ws.length} workouts, ${sets} sets. In Hevy: Settings → Export &amp; Import Data → Import Data → Import Strong CSV.`;
+}
+
 // ---------- backup ----------
+async function shareFile(name, text, type) {
+  const blob = new Blob([text], { type });
+  const file = new File([blob], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e.name === 'AbortError') return; } }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
 async function exportBackup() {
   const data = { app: 'gymbot', v: 1, exported: new Date().toISOString(), workouts: S.workouts, routines: S.routines, custom: S.custom, settings: S.settings };
   const name = `gymbot-${new Date().toISOString().slice(0, 10)}.json`;
@@ -725,7 +803,7 @@ async function downloadImages() {
   const msg = $('#dlMsg'), prog = $('#dlProg');
   if (!('caches' in window)) { msg.textContent = 'This browser does not support offline storage.'; return; }
   const list = await (await fetch('images.json')).json();
-  const cache = await caches.open('media-v2');
+  const cache = await caches.open('media-v3');
   prog.hidden = false; let done = 0, fail = 0;
   const queue = [...list];
   const worker = async () => {
@@ -898,6 +976,8 @@ const A = {
     ]);
   },
   importStrong() { $('#fileStrong').click(); },
+  importHevy() { $('#fileHevy').click(); },
+  async exportHevy() { const msg = $('#importMsg'); try { msg.innerHTML = await exportHevy(); } catch (err) { msg.textContent = '❌ ' + err.message; } },
   importBackup() { $('#fileBackup').click(); },
   exportBackup() { exportBackup(); },
   mapDays(el) { S.mapDays = +el.dataset.d; render(); },
@@ -945,10 +1025,10 @@ document.addEventListener('change', async e => {
   if (el.dataset.a === 'toggle') { S.settings[el.dataset.k] = el.checked; saveSettings(); if (el.dataset.k === 'wake') requestWake(); return; }
   if (el.dataset.a === 'sfx') { S.settings.sfx = el.value; saveSettings(); playSfx(el.value); return; }
   if (el.dataset.a === 'customMuscle') { const x = S.custom.find(c => c.id === el.dataset.id); x.pm = el.value ? [el.value] : []; DB.put('customEx', x); return; }
-  if (el.id === 'fileStrong' || el.id === 'fileBackup') {
+  if (el.id === 'fileStrong' || el.id === 'fileHevy' || el.id === 'fileBackup') {
     const file = el.files[0]; if (!file) return;
     const msg = $('#importMsg'); msg.textContent = 'Importing …';
-    try { const text = await file.text(); const res = el.id === 'fileStrong' ? await importStrong(text) : await importBackup(text); render(); $('#importMsg').innerHTML = res; }
+    try { const text = await file.text(); const res = el.id === 'fileStrong' ? await importStrong(text) : el.id === 'fileHevy' ? await importHevy(text) : await importBackup(text); render(); $('#importMsg').innerHTML = res; }
     catch (err) { $('#importMsg').textContent = '❌ ' + err.message; }
     el.value = '';
   }

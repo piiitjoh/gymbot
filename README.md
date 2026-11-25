@@ -1,36 +1,42 @@
 # Gymbot
 
-Offline treningslogg «Gymbot» (PWA). All data lagres lokalt på telefonen (IndexedDB). Ingen server, ingen konto.
+Gymbot is an offline strength-training log (PWA). All data is stored locally on the phone (IndexedDB). No server, no account.
 
-## Publisere på GitHub Pages
-1. Lag et nytt **offentlig** repo på GitHub, f.eks. `gymbot`. Gratis Pages krever offentlig repo, men det er bare koden som ligger der, aldri treningsdataene dine.
-2. Last opp **innholdet** i denne mappen til roten av repoet (index.html skal ligge øverst). Bruk `git push` heller enn opplasting i nettleseren:
+## Publish on GitHub Pages
+1. Create a new **public** repo on GitHub, e.g. `gymbot`. Free Pages needs a public repo, but only the code lives there, never your training data.
+2. Upload the **contents** of this folder to the root of the repo (index.html must be at the top level). Use `git push` rather than uploading in the browser:
    ```
-   git init && git add . && git commit -m "Gymbot" 
+   git init && git add . && git commit -m "Gymbot"
    git branch -M main
-   git remote add origin https://github.com/<bruker>/gymbot.git
+   git remote add origin https://github.com/<user>/gymbot.git
    git push -u origin main
    ```
-3. Gå til repoet → **Settings → Pages**, velg «Deploy from a branch», `main` / `(root)`, og trykk **Save**.
-4. Etter et minutt eller to er appen på `https://<bruker>.github.io/gymbot/`.
+3. Go to the repo → **Settings → Pages**, choose "Deploy from a branch", `main` / `(root)`, and press **Save**.
+4. After a minute or two the app is at `https://<user>.github.io/gymbot/`.
 
-## Installere på telefonen
-- **iPhone:** Åpne adressen i Safari → Del-knappen → «Legg til på Hjem-skjerm».
-- **Android:** Åpne adressen i Chrome → ⋮ → «Installer app» / «Legg til på startskjermen».
+## Install on the phone
+- **iPhone:** Open the address in Safari → Share button → "Add to Home Screen".
+- **Android:** Open the address in Chrome → ⋮ → "Install app" / "Add to Home screen".
 
-Åpne appen fra ikonet én gang mens du er på nett. Da lagres appen og animasjonene av dine egne øvelser, og etter det fungerer den helt offline.
+Open the app from its icon once while online. That saves the app and the animations of your own exercises; after that it works fully offline. **More → Download all animations** saves the rest.
 
-## Første gang
-**Mer → Importer fra Strong (CSV)** → velg Strong-eksporten. Importen lager også rutiner av de navngitte øktene dine. Kjører du importen på nytt, dupliserer den ikke økter.
+## First run
+**More → Import from Strong (CSV)** → choose your Strong export. The import also creates routines from your named workouts. Running the import again does not duplicate workouts.
 
-## Oppdatere appen
-Endre filene, øk `VERSION` i `sw.js` (f.eks. `'v2'`) og push. Telefonen henter den nye versjonen neste gang appen åpnes med nett, og dataene dine beholdes.
+## Hevy
+- **More → Import from Hevy (CSV)** reads Hevy's own workout export (Hevy: Profile → Settings → Export & Import Data → Export Data → Export Workouts). Warm-up, drop and failure sets, RPE, kg or lbs, and distance/time are kept. Workouts already in Gymbot (same start time) are not imported twice.
+- **More → Export for Hevy (CSV)** writes your history as a Strong-format CSV, because Hevy only imports Strong files. In Hevy: Profile → Settings → Export & Import Data → Import Data → Import Strong CSV. Exercise names Hevy doesn't recognise become custom exercises there.
+
+## Update the app
+Change the files, bump `VERSION` in `sw.js` (e.g. `'v2'`) and push. The phone fetches the new version the next time the app is opened online, and your data is kept.
 
 ## Backup
-**Mer → Eksporter backup** lagrer en JSON-fil (via delingsmenyen på telefonen). Sletter du appen eller nettleserdataene for nettstedet, forsvinner dataene, så ta backup innimellom.
+**More → Export backup (JSON)** saves a JSON file (through the phone's share menu). If you delete the app or the site's browser data, your data is gone, so take a backup now and then.
 
-Øvelsestegninger: kun [Everkinetic](https://github.com/everkinetic/data) av Greg Priday, [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) – se `LICENSE-everkinetic-CC-BY-SA-4.0.md`. Tegningene er beskåret, skalert og satt sammen til animasjoner (start- og sluttposisjon) i `anim/ek-*.webp` og `thumb/ek-*.webp`; disse endrede bildene deles under samme lisens, CC BY-SA 4.0. Øvelser uten en passende Everkinetic-tegning har ingen tegning. Laget med `tools/add_everkinetic.py`.
+## Credits and licenses
 
-Øvelsesbeskrivelser: [Open Exercise Figures](https://github.com/AbanoubAmir/open-exercise-figures) (CC0, public domain).
+Exercise drawings: [Workout Guide](https://github.com/bryllim/workout-guide) by [Bryl Lim](https://bryllim.com), [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) – see `LICENSE-workout-guide-CC-BY-SA-4.0.md`. Workout Guide is partly based on drawings from [Everkinetic](https://github.com/everkinetic/data) by Greg Priday (CC BY-SA 4.0, see `LICENSE-everkinetic-CC-BY-SA-4.0.md`). The drawings have been recoloured (black on white), cropped, scaled and combined into animations in `anim/wg-*.webp` and thumbnails in `thumb/wg-*.webp`; these modified images are shared under the same license, CC BY-SA 4.0. Exercises without a matching drawing have no drawing. Made with `tools/add_workout_guide.py`.
 
-Muskelkart: SVG-polygoner fra [body-highlighter](https://github.com/lahaxearnaud/body-highlighter) / react-body-highlighter, MIT-lisens – se `LICENSE-body-highlighter.txt`.
+Exercise descriptions: [Open Exercise Figures](https://github.com/AbanoubAmir/open-exercise-figures) (CC0, public domain).
+
+Muscle map: SVG polygons from [body-highlighter](https://github.com/lahaxearnaud/body-highlighter) / react-body-highlighter, MIT license – see `LICENSE-body-highlighter.txt`.

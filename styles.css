@@ -134,3 +134,11 @@ label.set input[type=checkbox]{width:22px;height:22px;accent-color:var(--acc)}
 .bm svg{width:100%;height:auto;display:block}
 .bmleg{display:flex;justify-content:center;align-items:center;gap:6px;margin-bottom:6px}
 .bmleg span{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:8px}
+
+/* exercise page: drawing and muscle map side by side */
+.exvis{display:flex;align-items:center;gap:10px;margin:0 0 12px}
+.exvis .anim{flex:0 0 56%;margin:0}
+.exvis .exmap{flex:1 1 0;min-width:0}
+.exvis .bodymap{gap:6px;margin:0 0 4px}
+.exvis .bm{width:50%}
+.exvis .bmleg span{margin-left:4px}
