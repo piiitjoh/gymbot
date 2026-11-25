@@ -39,10 +39,16 @@ h3{font-size:15px;margin:0}
 /* nav */
 #nav{position:fixed;left:0;right:0;bottom:0;height:calc(var(--navh) + var(--safeb));padding-bottom:var(--safeb);display:flex;background:#13161b;border-top:1px solid var(--line);z-index:20}
 #nav button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;color:var(--mut);gap:2px}
-#nav button .ic{font-size:20px;filter:grayscale(1);opacity:.7}
 #nav button.on{color:var(--text)}
-#nav button.on .ic{filter:none;opacity:1}
-#nav .dot{position:absolute;margin-left:22px;margin-top:-30px;width:8px;height:8px;border-radius:50%;background:var(--ok)}
+#nav button .ic{display:flex;opacity:.65}
+#nav button.on .ic{opacity:1}
+#nav .ic svg{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#nav .lb{display:flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
+/* workout running: blinking dot + elapsed time instead of the label */
+#nav button.live .lb{color:var(--ok);font-weight:600}
+#nav .ldot{width:6px;height:6px;border-radius:50%;background:var(--ok);animation:liveblink 1.4s ease-in-out infinite}
+@keyframes liveblink{0%,100%{opacity:1}50%{opacity:.15}}
+@media (prefers-reduced-motion:reduce){#nav .ldot{animation:none}}
 
 /* header in views */
 .vhead{display:flex;align-items:center;gap:6px;margin:0 -4px 8px;position:sticky;top:0;background:var(--bg);z-index:5;padding:6px 4px}

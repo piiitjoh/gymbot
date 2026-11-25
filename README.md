@@ -39,4 +39,6 @@ Exercise drawings: [Workout Guide](https://github.com/bryllim/workout-guide) by 
 
 Exercise descriptions: [Open Exercise Figures](https://github.com/AbanoubAmir/open-exercise-figures) (CC0, public domain).
 
+Tab icons: [Tabler Icons](https://tabler.io/icons) by Paweł Kuna, MIT license – see `LICENSE-tabler-icons.txt`.
+
 Muscle map: SVG polygons from [body-highlighter](https://github.com/lahaxearnaud/body-highlighter) / react-body-highlighter, MIT license – see `LICENSE-body-highlighter.txt`.

@@ -40,11 +40,11 @@ const BODY_GREY = '#4a515c', BODY_INERT = '#3a3f48';
 const LEVEL_COL = ['', '#2c4a7c', '#3a68b8', '#4f8cff', '#8fb6ff'];
 function bodyMapHTML(levels, legend) {
   if (!BODY) return '';
-  const side = (k, label) => `<div class="bm"><svg viewBox="0 0 100 220" aria-label="${label}">${BODY[k].map(([slug, polys]) => {
+  const side = (k, label) => `<div class="bm"><svg viewBox="0 0 100 220" role="img" aria-label="${label}">${BODY[k].map(([slug, polys]) => {
     const lv = levels[slug] || 0; const fill = lv ? LEVEL_COL[lv] : (slug === 'head' || slug === 'knees' ? BODY_INERT : BODY_GREY);
     return polys.map(pt => `<polygon points="${pt}" fill="${fill}"/>`).join('');
-  }).join('')}</svg><div class="tiny mut">${label}</div></div>`;
-  return `<div class="bodymap">${side('front', 'Forfra')}${side('back', 'Bakfra')}</div>${legend || ''}`;
+  }).join('')}</svg></div>`;
+  return `<div class="bodymap">${side('front', 'Front')}${side('back', 'Back')}</div>${legend || ''}`;
 }
 function levelsForExercise(x) {
   const lv = {};
@@ -201,9 +201,6 @@ function render() {
   $('#main').innerHTML = html;
   document.querySelectorAll('#nav button').forEach(b => {
     b.classList.toggle('on', b.dataset.tab === S.tab);
-    const dot = b.querySelector('.dot');
-    if (b.dataset.tab === 'train' && S.active && !dot) b.insertAdjacentHTML('beforeend', '<span class="dot"></span>');
-    if (dot && !S.active) dot.remove();
   });
   afterRender();
   tick();
@@ -389,7 +386,18 @@ function renderRest() {
     <button class="btn" data-a="rest-15">−15</button><button class="btn" data-a="rest+15">+15</button><button class="btn" data-a="restSkip">Done</button></div>`;
   tick();
 }
+// Workout tab while a workout runs: blinking green dot + elapsed time in place of the label
+function navLive() {
+  const b = document.querySelector('#nav button[data-tab="train"]'); if (!b) return;
+  const lb = b.querySelector('.lb');
+  if (S.active) {
+    if (!b.classList.contains('live')) { b.classList.add('live'); lb.innerHTML = '<span class="ldot"></span><span class="lt"></span>'; b.setAttribute('aria-label', 'Workout in progress'); }
+    const t = fmtClock((Date.now() - S.active.start) / 1000), lt = lb.querySelector('.lt');
+    if (lt.textContent !== t) lt.textContent = t;
+  } else if (b.classList.contains('live')) { b.classList.remove('live'); lb.textContent = 'Workout'; b.removeAttribute('aria-label'); }
+}
 function tick() {
+  navLive();
   const el = $('#elapsed'); if (el && S.active) el.textContent = fmtClock((Date.now() - S.active.start) / 1000);
   if (S.rest) {
     const left = (S.rest.end - Date.now()) / 1000;
@@ -620,7 +628,7 @@ function viewMore() {
     <div>${S.workouts.length} workouts · ${S.routines.length} routines · ${S.custom.length} custom exercises</div>
     <button class="btn block bad" data-a="wipe">Delete all data</button>
   </div>
-  <p class="tiny mut">Exercise drawings: <a href="https://github.com/bryllim/workout-guide" target="_blank" rel="noopener">Workout Guide</a> by Bryl Lim, partly based on <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a> by Greg Priday, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>, recoloured and combined into animations. Exercise descriptions: Open Exercise Figures (CC0). Muscle maps: body-highlighter (MIT).</p>
+  <p class="tiny mut">Exercise drawings: <a href="https://github.com/bryllim/workout-guide" target="_blank" rel="noopener">Workout Guide</a> by Bryl Lim, partly based on <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a> by Greg Priday, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>, recoloured and combined into animations. Exercise descriptions: Open Exercise Figures (CC0). Muscle maps: body-highlighter (MIT). Icons: Tabler Icons (MIT).</p>
   <input type="file" id="fileStrong" accept=".csv,text/csv,text/plain" hidden>
   <input type="file" id="fileHevy" accept=".csv,text/csv,text/plain" hidden>
   <input type="file" id="fileBackup" accept=".json,application/json" hidden>`;
