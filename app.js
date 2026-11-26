@@ -351,6 +351,8 @@ function rerenderCard(i) {
 
 // ---------- rest timer ----------
 let audioCtx = null;
+let sfxOut = null;     // where sound effects go: the speakers, or the bus of a queued rest alarm
+let alarmBus = null;   // the queued rest alarm, so it can be cancelled or moved
 // Browsers only allow sound after a user gesture, and on a touch screen pointerdown does not count:
 // the end of the tap does. Unlock (and re-unlock after the phone suspended audio) on every tap.
 function unlockAudio() {
@@ -362,7 +364,7 @@ function unlockAudio() {
 }
 ['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true, capture: true }));
 function bellStrike(t, vol) {
-  const ctx = audioCtx, out = ctx.createGain(); out.gain.value = vol; out.connect(ctx.destination);
+  const ctx = audioCtx, out = ctx.createGain(); out.gain.value = vol; out.connect(sfxOut || ctx.destination);
   const base = 880;
   [[1, 1, 1.2], [2.0, 0.3, 0.8], [2.76, 0.25, 0.6], [5.4, 0.07, 0.3]].forEach(([ratio, g, dec]) => {
     const o = ctx.createOscillator(), a = ctx.createGain();
@@ -381,7 +383,7 @@ function tone(type, f0, f1, t, dur, vol, dest) {
   const o = audioCtx.createOscillator(), g = audioCtx.createGain();
   o.type = type; o.frequency.setValueAtTime(f0, t); if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(dest || audioCtx.destination); o.start(t); o.stop(t + dur + 0.02);
+  o.connect(g); g.connect(dest || sfxOut || audioCtx.destination); o.start(t); o.stop(t + dur + 0.02);
 }
 const SFX = {
   bell: { name: 'Boxing bell', play: t => [0, 0.3].forEach(dt => bellStrike(t + dt, 0.38)) },
@@ -392,7 +394,7 @@ const SFX = {
   synth: { name: 'Synth power chord', play: t => {         // detuned saw chord through a sweeping filter
     const lp = audioCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 6;
     lp.frequency.setValueAtTime(250, t); lp.frequency.exponentialRampToValueAtTime(3200, t + 0.35); lp.frequency.exponentialRampToValueAtTime(600, t + 1.1);
-    lp.connect(audioCtx.destination);
+    lp.connect(sfxOut || audioCtx.destination);
     [110, 164.81, 220, 277.18].forEach(f => { tone('sawtooth', f, f, t, 1.1, 0.07, lp); tone('sawtooth', f * 1.008, f * 1.008, t, 1.1, 0.07, lp); });
   } },
   watch: { name: 'Digital watch alarm', play: t => {        // classic LCD-watch beep-beep, beep-beep
@@ -410,20 +412,37 @@ function playSfx(key) {
   const go = () => (SFX[key] || SFX.bell).play(audioCtx.currentTime + 0.02);
   if (audioCtx.state === 'running') go(); else audioCtx.resume().then(go, () => {});
 }
+// Queue the alarm in the audio clock when the rest starts. That happens inside the tap that ticks
+// the set, when the phone allows sound; asking for sound later, when the rest ends, is what Android
+// blocks. A silent loop keeps the audio running until the alarm has played.
+function cancelAlarm() { if (alarmBus) { try { alarmBus.disconnect(); } catch (e) {} alarmBus = null; } }
+function scheduleAlarm(endMs) {
+  cancelAlarm();
+  if (!S.settings.sound) return;
+  unlockAudio(); if (!audioCtx) return;
+  const t = audioCtx.currentTime + Math.max(0.05, (endMs - Date.now()) / 1000);
+  alarmBus = audioCtx.createGain(); alarmBus.connect(audioCtx.destination);
+  const keep = audioCtx.createBufferSource(); keep.buffer = audioCtx.createBuffer(1, 2205, 22050); keep.loop = true;
+  keep.connect(alarmBus); keep.start(); keep.stop(t + 3);
+  sfxOut = alarmBus; try { (SFX[S.settings.sfx] || SFX.bell).play(t); } finally { sfxOut = null; }
+}
 function beep() {
   if (S.settings.vibrate && navigator.vibrate) navigator.vibrate([150, 120, 150]);
   if (!S.settings.sound || !audioCtx) return;
-  playSfx(S.settings.sfx);
+  if (alarmBus && audioCtx.state === 'running') return;   // the queued alarm is playing right now
+  playSfx(S.settings.sfx);                                 // fallback, e.g. after the app was reopened mid-rest
 }
 function startRest(sec, eid) {
   if (!sec) { S.rest = null; renderRest(); return; }
   S.rest = { end: Date.now() + sec * 1000, total: sec, eid, beeped: false }; DB.put('kv', S.rest, 'rest'); renderRest();
+  scheduleAlarm(S.rest.end);
 }
 function adjustRest(d) {
   if (!S.rest) return; S.rest.end += d * 1000; S.rest.total = Math.max(1, S.rest.total + d);
-  if (S.rest.end > Date.now()) S.rest.beeped = false; DB.put('kv', S.rest, 'rest'); tick();
+  if (S.rest.end > Date.now()) { S.rest.beeped = false; scheduleAlarm(S.rest.end); } DB.put('kv', S.rest, 'rest'); tick();
 }
 function renderRest() {
+  if (!S.rest) cancelAlarm();
   const bar = $('#restbar');
   if (!S.rest || !S.active) { bar.hidden = true; return; }
   bar.hidden = false;
