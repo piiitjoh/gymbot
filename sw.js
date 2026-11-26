@@ -1,5 +1,5 @@
 // Bump VERSION when you change app files, so phones pick up the update.
-const VERSION = 'v25';
+const VERSION = 'v26';
 const SHELL = 'shell-' + VERSION;
 const IMG = 'media-v3';
 const SHELL_FILES = ["./", "index.html", "app.js", "styles.css", "exercises.json", "bodymap.json", "images.json", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];

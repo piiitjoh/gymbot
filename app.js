@@ -98,7 +98,7 @@ const DB = {
 // ---------- state ----------
 const S = {
   lib: [], ex: new Map(), workouts: [], routines: [], custom: [],
-  settings: { rest: 100, sound: true, vibrate: true, wake: false, sfx: 'bell' },
+  settings: { rest: 100, sound: true, vibrate: true, wake: false, sfx: 'bell', progress: true, range: [8, 12], step: 2.5, ranges: {} },
   active: null, tab: 'train', stack: [], sheet: null,
   rest: null, // {end,total,eid}
   pr: new Map(), // workoutId -> [{eid,type,val}]
@@ -266,6 +266,34 @@ function timeOfDayName(d = new Date()) {
   const h = d.getHours();
   return h < 10 ? 'Morning Workout' : h < 13 ? 'Midday Workout' : h < 18 ? 'Afternoon Workout' : 'Evening Workout';
 }
+// ---------- next-set suggestions (double progression) ----------
+// Each exercise has a rep range (default 8-12). If every working set at last session's top weight
+// reached the top of the range, suggest more weight and the bottom of the range; otherwise the same
+// weight and one more rep. Bodyweight exercises: one more rep.
+const RANGES = [[3, 5], [5, 8], [6, 10], [8, 12], [10, 15], [12, 20]];
+const repRange = eid => (S.settings.ranges || {})[eid] || S.settings.range || [8, 12];
+function weightStep(eid) {
+  const eq = (exById(eid).eq || '').toLowerCase();
+  return /dumbbell|kettlebell/.test(eq) ? 2 : (S.settings.step || 2.5);
+}
+function suggestSets(eid, sets) {
+  if (!S.settings.progress) return sets;
+  const last = lastSets(eid); if (!last) return sets;
+  const work = last.sets.filter(s => s.t !== 'w' && (s.reps || 0) > 0); if (!work.length) return sets;
+  const [lo, hi] = repRange(eid), step = weightStep(eid);
+  const top = Math.max(...work.map(s => s.kg || 0));
+  const bw = top === 0;
+  const allTop = work.filter(s => (s.kg || 0) === top).every(s => s.reps >= hi);
+  let k = 0;
+  return sets.map(s => {
+    if (s.t === 'w' || s.done) return s;
+    const p = work[Math.min(k++, work.length - 1)];
+    if (bw) return { ...s, kg: s.kg ?? null, reps: p.reps + 1, sg: 'reps' };
+    if (allTop) return { ...s, kg: Math.round(((p.kg || 0) + step) * 100) / 100, reps: lo, sg: 'kg' };
+    return p.reps < hi ? { ...s, kg: p.kg, reps: p.reps + 1, sg: 'reps' } : { ...s, kg: p.kg, reps: p.reps };
+  });
+}
+const withSuggestions = e => ({ ...e, sets: suggestSets(e.eid, e.sets) });
 function exFromPrev(eid, fallbackSets, rest) {
   const last = lastSets(eid);
   let sets;
@@ -280,7 +308,7 @@ function startWorkout(w) {
 }
 function startRoutine(r) {
   if (S.active) { toast('You already have an active workout'); S.tab = 'train'; S.stack = []; render(); return; }
-  startWorkout({ id: uid(), name: r.name, start: Date.now(), routineId: r.id, ex: r.ex.map(e => exFromPrev(e.eid, e.sets, e.rest)) });
+  startWorkout({ id: uid(), name: r.name, start: Date.now(), routineId: r.id, ex: r.ex.map(e => withSuggestions(exFromPrev(e.eid, e.sets, e.rest))) });
 }
 
 // ---------- EDITOR (active workout / edit history / routine) ----------
@@ -324,8 +352,8 @@ function exCardHTML(w, e, i, mode) {
     return `<div class="swipe"><div class="swipe-bg">Delete</div><div class="setrow ${s.done ? 'done' : ''}" data-ei="${i}" data-si="${j}">
       <button class="stype ${s.t || 'n'}" data-a="stype">${lbl}</button>
       <div class="prev">${routine ? '' : p ? esc(setStr(p)) : '–'}</div>
-      <input inputmode="decimal" data-f="kg" value="${s.kg ? fmtKg(s.kg) : ''}" placeholder="kg">
-      <input inputmode="numeric" data-f="reps" value="${s.reps ?? ''}" placeholder="reps">
+      <input inputmode="decimal" data-f="kg" class="${!s.done && s.sg === 'kg' ? 'sug' : ''}" value="${s.kg ? fmtKg(s.kg) : ''}" placeholder="kg">
+      <input inputmode="numeric" data-f="reps" class="${!s.done && s.sg ? 'sug' : ''}" value="${s.reps ?? ''}" placeholder="reps">
       ${routine ? '' : `<button class="chk" data-a="check">✓</button>`}</div></div>`;
   }).join('');
   return `<div class="excard" data-ei="${i}">
@@ -350,7 +378,7 @@ function rerenderCard(i) {
 }
 
 // ---------- rest timer ----------
-const APP_VERSION = 'v25';   // keep in step with VERSION in sw.js
+const APP_VERSION = 'v26';   // keep in step with VERSION in sw.js
 let audioCtx = null;
 let sfxOut = null;     // where sound effects go: the speakers, or the bus of a queued rest alarm
 let alarmBus = null;   // the queued rest alarm, so it can be cancelled or moved
@@ -735,6 +763,14 @@ function viewMore() {
     <label class="set"><span>Vibration (Android)</span><input type="checkbox" data-a="toggle" data-k="vibrate" ${st.vibrate ? 'checked' : ''}></label>
     <label class="set" style="border:0"><span>Keep screen on during workout</span><input type="checkbox" data-a="toggle" data-k="wake" ${st.wake ? 'checked' : ''}></label>
   </div>
+  <h2>Progression</h2>
+  <div class="card">
+    <label class="set"><span>Suggest next weight and reps</span><input type="checkbox" data-a="toggle" data-k="progress" ${st.progress ? 'checked' : ''}></label>
+    <div class="small mut" style="margin:8px 0 6px">Default rep range – weight goes up when every working set reaches the top</div>
+    <div class="grid3">${RANGES.map(r => `<button class="btn sm ${(st.range || [8, 12]).join() === r.join() ? 'on' : ''}" data-a="defRange" data-r="${r.join('-')}">${r.join('–')}</button>`).join('')}</div>
+    <div class="small mut" style="margin:10px 0 6px">Weight step (dumbbells and kettlebells use 2 kg)</div>
+    <div class="grid3">${[1.25, 2.5, 5].map(v => `<button class="btn sm ${(st.step || 2.5) === v ? 'on' : ''}" data-a="defStep" data-s="${v}">+${fmtKg(v)} kg</button>`).join('')}</div>
+  </div>
   <h2>Offline</h2>
   <div class="card">
     <div class="small">Animations for your own exercises are saved automatically. Others are saved when you open them – or download all (~42 MB).</div>
@@ -957,6 +993,12 @@ function renderSheet() {
   } else if (sh.type === 'rest') {
     const ed = curEditor(); const cur = ed && ed.obj.ex[sh.ei] && ed.obj.ex[sh.ei].rest;
     body = `<h2 style="margin-top:0">Rest time – ${esc(exById(ed.obj.ex[sh.ei].eid).name)}</h2><div class="grid3">${REST_PRESETS.map(s => `<button class="btn ${cur === s ? 'on' : ''}" data-a="setRest" data-s="${s}">${s ? fmtClock(s) : 'Off'}</button>`).join('')}</div>`;
+  } else if (sh.type === 'range') {
+    const cur = (S.settings.ranges || {})[sh.eid];
+    body = `<h2 style="margin-top:0">Rep range – ${esc(exById(sh.eid).name)}</h2>
+      <div class="small mut" style="margin-bottom:8px">Weight goes up when every working set reaches the top of the range.</div>
+      <div class="grid3">${RANGES.map(r => `<button class="btn ${cur && cur.join() === r.join() ? 'on' : ''}" data-a="setRange" data-r="${r.join('-')}">${r.join('–')}</button>`).join('')}</div>
+      <button class="btn block ${cur ? '' : 'on'}" data-a="setRange" data-r="">Use default (${(S.settings.range || [8, 12]).join('–')})</button>`;
   } else if (sh.type === 'menu') {
     body = `<div class="menu">${sh.items.map((it, i) => `<button class="${it.bad ? 'bad' : ''}" data-a="menuItem" data-i="${i}">${it.label}</button>`).join('')}</div><button class="btn block" data-a="closeSheet">Close</button>`;
   }
@@ -1006,9 +1048,9 @@ const A = {
     const sh = S.sheet;
     if (sh.replace != null) {
       const e = ed.obj.ex[sh.replace];
-      if (ed.mode === 'routine') e.eid = id; else ed.obj.ex[sh.replace] = exFromPrev(id, e.sets, e.rest);
+      if (ed.mode === 'routine') e.eid = id; else ed.obj.ex[sh.replace] = ed.mode === 'active' ? withSuggestions(exFromPrev(id, e.sets, e.rest)) : exFromPrev(id, e.sets, e.rest);
     } else {
-      const n = ed.mode === 'routine' ? { eid: id, rest: (lastSets(id) || {}).rest || S.settings.rest, sets: (lastSets(id)?.sets || [{}, {}, {}]).map(s => ({ kg: s.kg ?? null, reps: s.reps ?? null, t: s.t || 'n' })) } : exFromPrev(id);
+      const n = ed.mode === 'routine' ? { eid: id, rest: (lastSets(id) || {}).rest || S.settings.rest, sets: (lastSets(id)?.sets || [{}, {}, {}]).map(s => ({ kg: s.kg ?? null, reps: s.reps ?? null, t: s.t || 'n' })) } : ed.mode === 'active' ? withSuggestions(exFromPrev(id)) : exFromPrev(id);
       ed.obj.ex.push(n);
     }
     persist(ed.mode, ed.obj);
@@ -1069,6 +1111,7 @@ const A = {
       { label: '⬆️ Move up', fn: () => move(-1) },
       { label: '⬇️ Move down', fn: () => move(1) },
       { label: 'ℹ️ View exercise', fn: () => push({ v: 'exercise', id: arr[i].eid }) },
+      { label: `🎯 Rep range: ${repRange(arr[i].eid).join('–')}${(S.settings.ranges || {})[arr[i].eid] ? '' : ' (default)'}`, fn: () => openSheet({ type: 'range', eid: arr[i].eid, ei: i }) },
       { label: '🗑️ Remove exercise', bad: true, fn: () => { const [r] = arr.splice(i, 1); persist(ed.mode, ed.obj); render(); toast(`Removed ${exById(r.eid).name}`, () => { arr.splice(i, 0, r); persist(ed.mode, ed.obj); render(); }); } },
     ]);
   },
@@ -1089,7 +1132,7 @@ const A = {
   repeatWorkout(el) {
     const w = S.workouts.find(x => x.id === el.dataset.id);
     if (S.active) { toast('You already have an active workout'); return; }
-    startWorkout({ id: uid(), name: w.name, start: Date.now(), routineId: w.routineId, ex: w.ex.map(e => exFromPrev(e.eid, e.sets.filter(s => s.done), e.rest)) });
+    startWorkout({ id: uid(), name: w.name, start: Date.now(), routineId: w.routineId, ex: w.ex.map(e => withSuggestions(exFromPrev(e.eid, e.sets.filter(s => s.done), e.rest))) });
   },
   editWorkout(el) { push({ v: 'editor', mode: 'edit', id: el.dataset.id }); },
   workoutMenu(el) {
@@ -1111,6 +1154,20 @@ const A = {
   mapDays(el) { S.mapDays = +el.dataset.d; render(); },
   testAlarm() { startRest(5, null); toast('Rest alarm in 5 seconds – stay on this screen'); },
   testSfx() { if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } playSfx(S.settings.sfx); },
+  setRange(el) {
+    const sh = S.sheet; S.settings.ranges = S.settings.ranges || {};
+    if (el.dataset.r) S.settings.ranges[sh.eid] = el.dataset.r.split('-').map(Number); else delete S.settings.ranges[sh.eid];
+    saveSettings();
+    // re-suggest this exercise's untouched sets in the running workout
+    const ed = curEditor();
+    if (ed && ed.mode === 'active' && ed.obj.ex[sh.ei]) {
+      const e = ed.obj.ex[sh.ei];
+      if (e.sets.some(s => s.sg)) { e.sets = suggestSets(e.eid, e.sets.map(s => s.sg ? { ...s, sg: undefined } : s)); persist(ed.mode, ed.obj); }
+    }
+    closeSheet(); render();
+  },
+  defRange(el) { S.settings.range = el.dataset.r.split('-').map(Number); saveSettings(); render(); },
+  defStep(el) { S.settings.step = +el.dataset.s; saveSettings(); render(); },
   defRest(el) { S.settings.rest = +el.dataset.s; saveSettings(); render(); },
   dlImages() { downloadImages(); },
   async wipe() {
@@ -1179,6 +1236,7 @@ document.addEventListener('input', e => {
   if (row) {
     const s = ed.obj.ex[row.dataset.ei].sets[row.dataset.si];
     s[f] = f === 'reps' ? (num(el.value) == null ? null : Math.round(num(el.value))) : num(el.value);
+    if (s.sg) { delete s.sg; row.querySelectorAll('input.sug').forEach(i => i.classList.remove('sug')); }
   } else if (f === 'name') ed.obj.name = el.value;
   else if (f === 'start' && el.value) { const dur = (ed.obj.end || ed.obj.start) - ed.obj.start; ed.obj.start = new Date(el.value).getTime(); ed.obj.end = ed.obj.start + dur; sortWorkouts(); }
   else if (f === 'durMin') { const m = num(el.value); if (m != null) ed.obj.end = ed.obj.start + m * 60000; }

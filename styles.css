@@ -160,3 +160,6 @@ label.set input[type=checkbox]{width:22px;height:22px;accent-color:var(--acc)}
 .prfloat span{font-size:11px;font-weight:700;color:var(--warn);background:rgba(0,0,0,.6);padding:1px 6px;border-radius:6px;white-space:nowrap}
 @keyframes prfloat{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}15%{opacity:1;transform:translate(-50%,-70%) scale(1.1)}25%{transform:translate(-50%,-80%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-260%) scale(1)}}
 @media (prefers-reduced-motion:reduce){.prfloat{animation:prfade 1.8s forwards}@keyframes prfade{0%,80%{opacity:1}100%{opacity:0}}}
+
+/* suggested next weight/reps: green until you change it or tick the set */
+.sets input.sug{color:var(--ok)}
