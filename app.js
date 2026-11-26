@@ -350,6 +350,7 @@ function rerenderCard(i) {
 }
 
 // ---------- rest timer ----------
+const APP_VERSION = 'v25';   // keep in step with VERSION in sw.js
 let audioCtx = null;
 let sfxOut = null;     // where sound effects go: the speakers, or the bus of a queued rest alarm
 let alarmBus = null;   // the queued rest alarm, so it can be cancelled or moved
@@ -361,6 +362,57 @@ function unlockAudio() {
     if (audioCtx.state !== 'running') audioCtx.resume();
     const b = audioCtx.createBufferSource(); b.buffer = audioCtx.createBuffer(1, 1, 22050); b.connect(audioCtx.destination); b.start(0);
   } catch (e) {}
+  unlockClip();
+}
+// ---- alarm as an audio clip ----
+// The chosen sound is recorded once into a short WAV and played through an <audio> element. Phones let
+// a page replay a clip it has already started during a tap; live Web Audio gets blocked more readily.
+const clip = { el: null, key: null, ok: false, busy: false };
+const diag = { last: '' };
+function wavBlob(buf) {
+  const d = buf.getChannelData(0), n = d.length, v = new DataView(new ArrayBuffer(44 + n * 2));
+  const str = (o, t) => [...t].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, buf.sampleRate, true); v.setUint32(28, buf.sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, d[i])) * 0x7fff, true);
+  return new Blob([v], { type: 'audio/wav' });
+}
+async function buildClip(key) {
+  if (clip.key === key && clip.el) return;
+  const Off = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!Off) return;
+  const off = new Off(1, 44100 * 1.6, 44100), real = audioCtx;
+  audioCtx = off; sfxOut = null;
+  try { (SFX[key] || SFX.bell).play(0.02); } finally { audioCtx = real; }
+  const buf = await off.startRendering();
+  const el = clip.el || new Audio(); el.preload = 'auto';
+  if (el.src) URL.revokeObjectURL(el.src);
+  el.src = URL.createObjectURL(wavBlob(buf)); el.load();
+  clip.el = el; clip.key = key;
+}
+function unlockClip() {
+  if (!clip.el || clip.ok || clip.busy) return;
+  clip.busy = true; clip.el.muted = true;
+  const p = clip.el.play();
+  const done = ok => { clip.el.pause(); clip.el.currentTime = 0; clip.el.muted = false; clip.ok = ok; clip.busy = false; };
+  if (p && p.then) p.then(() => done(true), () => done(false)); else done(true);
+}
+function showDiag() {
+  try { localStorage.setItem('gbDiag', diag.last); } catch (e) {}
+  const el = $('#alarmDiag'); if (el) el.textContent = 'Last alarm: ' + diag.last;
+}
+function playAlarm() {
+  const d = new Date(), when = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const vis = document.visibilityState;
+  const fallback = why => {
+    diag.last = `${when} · clip ${why} · fallback sound (audio ${audioCtx ? audioCtx.state : 'none'}) · screen ${vis}`;
+    playSfx(S.settings.sfx); showDiag();
+  };
+  if (!clip.el) return fallback('not ready');
+  clip.el.currentTime = 0; clip.el.muted = false;
+  const p = clip.el.play();
+  const ok = () => { diag.last = `${when} · played · screen ${vis}`; showDiag(); };
+  if (p && p.then) p.then(ok, e => fallback('blocked (' + (e && e.name || 'error') + ')')); else ok();
 }
 ['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true, capture: true }));
 function bellStrike(t, vol) {
@@ -420,17 +472,16 @@ function scheduleAlarm(endMs) {
   cancelAlarm();
   if (!S.settings.sound) return;
   unlockAudio(); if (!audioCtx) return;
+  buildClip(S.settings.sfx);
   const t = audioCtx.currentTime + Math.max(0.05, (endMs - Date.now()) / 1000);
   alarmBus = audioCtx.createGain(); alarmBus.connect(audioCtx.destination);
   const keep = audioCtx.createBufferSource(); keep.buffer = audioCtx.createBuffer(1, 2205, 22050); keep.loop = true;
   keep.connect(alarmBus); keep.start(); keep.stop(t + 3);
-  sfxOut = alarmBus; try { (SFX[S.settings.sfx] || SFX.bell).play(t); } finally { sfxOut = null; }
 }
 function beep() {
   if (S.settings.vibrate && navigator.vibrate) navigator.vibrate([150, 120, 150]);
-  if (!S.settings.sound || !audioCtx) return;
-  if (alarmBus && audioCtx.state === 'running') return;   // the queued alarm is playing right now
-  playSfx(S.settings.sfx);                                 // fallback, e.g. after the app was reopened mid-rest
+  if (!S.settings.sound) return;
+  playAlarm();
 }
 function startRest(sec, eid) {
   if (!sec) { S.rest = null; renderRest(); return; }
@@ -447,7 +498,7 @@ function renderRest() {
   if (!S.rest || !S.active) { bar.hidden = true; return; }
   bar.hidden = false;
   bar.innerHTML = `<div class="prog"></div><div class="row" style="position:relative">
-    <div class="t" id="restT"></div><div class="grow tiny mut ellip">${esc(exById(S.rest.eid).name)}</div>
+    <div class="t" id="restT"></div><div class="grow tiny mut ellip">${S.rest.eid ? esc(exById(S.rest.eid).name) : 'Alarm test'}</div>
     <button class="btn" data-a="rest-15">−15</button><button class="btn" data-a="rest+15">+15</button><button class="btn" data-a="restSkip">Done</button></div>`;
   tick();
 }
@@ -679,6 +730,8 @@ function viewMore() {
     <div class="grid3">${REST_PRESETS.filter(Boolean).map(s => `<button class="btn sm ${st.rest === s ? 'on' : ''}" data-a="defRest" data-s="${s}">${fmtClock(s)}</button>`).join('')}</div>
     <label class="set"><span>Sound when rest is over</span><input type="checkbox" data-a="toggle" data-k="sound" ${st.sound ? 'checked' : ''}></label>
     <div class="row" style="padding:10px 0;border-bottom:1px solid var(--line)"><select data-a="sfx" class="grow">${Object.entries(SFX).map(([k, v]) => `<option value="${k}" ${st.sfx === k ? 'selected' : ''}>${v.name}</option>`).join('')}</select><button class="btn sm" data-a="testSfx">▶ Test</button></div>
+    <button class="btn block" data-a="testAlarm">⏱ Test rest alarm (5 s)</button>
+    <div class="tiny mut" id="alarmDiag" style="padding:4px 0 8px">${diag.last ? 'Last alarm: ' + esc(diag.last) : 'Last alarm: none yet'}</div>
     <label class="set"><span>Vibration (Android)</span><input type="checkbox" data-a="toggle" data-k="vibrate" ${st.vibrate ? 'checked' : ''}></label>
     <label class="set" style="border:0"><span>Keep screen on during workout</span><input type="checkbox" data-a="toggle" data-k="wake" ${st.wake ? 'checked' : ''}></label>
   </div>
@@ -694,6 +747,7 @@ function viewMore() {
     <button class="btn block bad" data-a="wipe">Delete all data</button>
   </div>
   <p class="tiny mut">Exercise drawings: <a href="https://github.com/bryllim/workout-guide" target="_blank" rel="noopener">Workout Guide</a> by Bryl Lim, partly based on <a href="https://github.com/everkinetic/data" target="_blank" rel="noopener">Everkinetic</a> by Greg Priday, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a>, recoloured and combined into animations. Exercise descriptions: Open Exercise Figures (CC0). Muscle maps: body-highlighter (MIT). Icons: Tabler Icons (MIT).</p>
+  <p class="tiny mut">Gymbot ${APP_VERSION}</p>
   <input type="file" id="fileStrong" accept=".csv,text/csv,text/plain" hidden>
   <input type="file" id="fileHevy" accept=".csv,text/csv,text/plain" hidden>
   <input type="file" id="fileBackup" accept=".json,application/json" hidden>`;
@@ -1055,6 +1109,7 @@ const A = {
   importBackup() { $('#fileBackup').click(); },
   exportBackup() { exportBackup(); },
   mapDays(el) { S.mapDays = +el.dataset.d; render(); },
+  testAlarm() { startRest(5, null); toast('Rest alarm in 5 seconds – stay on this screen'); },
   testSfx() { if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } playSfx(S.settings.sfx); },
   defRest(el) { S.settings.rest = +el.dataset.s; saveSettings(); render(); },
   dlImages() { downloadImages(); },
@@ -1132,7 +1187,7 @@ document.addEventListener('input', e => {
 document.addEventListener('change', async e => {
   const el = e.target;
   if (el.dataset.a === 'toggle') { S.settings[el.dataset.k] = el.checked; saveSettings(); if (el.dataset.k === 'wake') requestWake(); return; }
-  if (el.dataset.a === 'sfx') { S.settings.sfx = el.value; saveSettings(); playSfx(el.value); return; }
+  if (el.dataset.a === 'sfx') { S.settings.sfx = el.value; saveSettings(); playSfx(el.value); clip.ok = false; buildClip(el.value).then(unlockClip); return; }
   if (el.dataset.a === 'customMuscle') { const x = S.custom.find(c => c.id === el.dataset.id); x.pm = el.value ? [el.value] : []; DB.put('customEx', x); return; }
   if (el.id === 'fileStrong' || el.id === 'fileHevy' || el.id === 'fileBackup') {
     const file = el.files[0]; if (!file) return;
@@ -1161,6 +1216,8 @@ async function loadAll() {
   } catch (e) { $('#main').innerHTML = `<p class="empty">Could not start: ${esc(e.message)}</p>`; return; }
   history.replaceState({ n: 0 }, '');
   render(); renderRest(); requestWake();
+  buildClip(S.settings.sfx);
+  try { diag.last = localStorage.getItem('gbDiag') || ''; } catch (e) {}
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
