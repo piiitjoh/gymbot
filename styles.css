@@ -64,18 +64,23 @@ h3{font-size:15px;margin:0}
 .exhead .thumb{width:40px;height:40px}
 .exname{font-weight:700;color:var(--acc);font-size:16px}
 .restchip{font-size:12px;color:var(--mut);padding:3px 8px;border-radius:999px;background:var(--card2);border:1px solid var(--line);font-variant-numeric:tabular-nums}
-.sets{display:grid;grid-template-columns:30px minmax(0,1fr) 64px 56px 40px 28px;gap:4px 6px;align-items:center}
-.sets.routine{grid-template-columns:30px minmax(0,1fr) 64px 56px 28px}
+.sets{display:flex;flex-direction:column;gap:4px}
+.hdrow,.setrow{display:grid;grid-template-columns:30px minmax(0,1fr) 64px 56px 40px;gap:6px;align-items:center}
+.sets.routine .hdrow,.sets.routine .setrow{grid-template-columns:30px minmax(0,1fr) 64px 56px}
 .sets .hd{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em;text-align:center}
 .sets .hd.l{text-align:left}
-.setrow{display:contents}
 .setrow>*{transition:background .15s}
+/* swipe left to delete: the row slides over a red strip */
+.swipe{position:relative;border-radius:8px;overflow:hidden}
+.swipe-bg{position:absolute;inset:0;background:#5a1d1d;color:#f3b4b4;display:flex;align-items:center;justify-content:flex-end;padding-right:16px;font-size:13px;font-weight:600;border-radius:8px;transition:background .15s}
+.swipe.armed .swipe-bg{background:var(--bad);color:#fff}
+.setrow{position:relative;background:var(--card);touch-action:pan-y;transition:transform .18s ease-out}
+.setrow.dragging{transition:none}
 .stype{height:36px;border-radius:8px;font-weight:700;font-size:14px;background:var(--card2)}
 .stype.w{color:var(--warn)}.stype.d{color:#b48cff}.stype.f{color:var(--bad)}
 .prev{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sets input{text-align:center;padding:7px 2px;height:36px;font-weight:600;font-variant-numeric:tabular-nums}
 .chk{height:36px;border-radius:8px;background:var(--card2);border:1px solid var(--line);font-size:18px;color:var(--mut)}
-.del{height:36px;color:#6b7280;font-size:20px}
 .setrow.done .chk{background:var(--ok);border-color:var(--ok);color:#06210f}
 .setrow.done input{background:var(--okbg);border-color:#24553a}
 .exfoot{display:flex;gap:8px;padding:8px 4px 4px}
@@ -148,3 +153,10 @@ label.set input[type=checkbox]{width:22px;height:22px;accent-color:var(--acc)}
 .exvis .bodymap{gap:6px;margin:0 0 4px}
 .exvis .bm{width:50%}
 .exvis .bmleg span{margin-left:4px}
+
+/* new record while training: the Gymbot icon floats up from the set */
+.prfloat{position:fixed;z-index:60;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:2px;transform:translate(-50%,-50%);animation:prfloat 1.8s ease-out forwards}
+.prfloat img{width:52px;height:52px;border-radius:12px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.prfloat span{font-size:11px;font-weight:700;color:var(--warn);background:rgba(0,0,0,.6);padding:1px 6px;border-radius:6px;white-space:nowrap}
+@keyframes prfloat{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}15%{opacity:1;transform:translate(-50%,-70%) scale(1.1)}25%{transform:translate(-50%,-80%) scale(1)}80%{opacity:1}100%{opacity:0;transform:translate(-50%,-260%) scale(1)}}
+@media (prefers-reduced-motion:reduce){.prfloat{animation:prfade 1.8s forwards}@keyframes prfade{0%,80%{opacity:1}100%{opacity:0}}}

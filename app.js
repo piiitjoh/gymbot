@@ -120,6 +120,36 @@ function workingSets(w, eid) {
   for (const e of w.ex) if (e.eid === eid) for (const s of e.sets) if (s.done && s.t !== 'w') out.push(s);
   return out;
 }
+// "Set 3", or "Drop set"/"Failure set", as numbered on the workout screen
+// Does this just-finished set beat every earlier set of the exercise (history and this workout)?
+// Same rules as the Records page: heavier weight, higher estimated 1RM, or more reps without weight.
+function isLiveRecord(w, eid, set) {
+  if (set.t === 'w') return false;
+  const st = exStats(eid); if (!st.n) return false;          // first time doing it is not a record
+  let kg = st.kg, rm = st.rm, reps = st.reps;
+  for (const e of w.ex) if (e.eid === eid) for (const x of e.sets) if (x !== set && x.done && x.t !== 'w') {
+    kg = Math.max(kg, x.kg || 0); rm = Math.max(rm, e1rm(x.kg, x.reps)); reps = Math.max(reps, x.reps || 0);
+  }
+  return (set.kg || 0) > kg || e1rm(set.kg, set.reps) > rm + 0.01 || (!set.kg && !kg && (set.reps || 0) > reps);
+}
+function floatRecord(row) {
+  if (!row) return;
+  const r = (row.querySelector('.chk') || row).getBoundingClientRect();
+  const el = document.createElement('div'); el.className = 'prfloat';
+  el.innerHTML = '<img src="icons/icon-192.png" alt=""><span>New record</span>';
+  el.style.left = (r.left + r.width / 2) + 'px'; el.style.top = r.top + 'px';
+  document.body.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
+  setTimeout(() => el.remove(), 3000);
+}
+function setLabel(w, eid, set) {
+  for (const e of w.ex) {
+    if (e.eid !== eid) continue;
+    let n = 0;
+    for (const x of e.sets) { const nn = !x.t || x.t === 'n'; if (nn) n++; if (x === set) return nn ? `Set ${n}` : x.t === 'd' ? 'Drop set' : 'Failure set'; }
+  }
+  return '';
+}
 function computePRs() {
   S.pr = new Map();
   const best = new Map();
@@ -130,14 +160,20 @@ function computePRs() {
     for (const e of w.ex) {
       if (seen.has(e.eid)) continue; seen.add(e.eid);
       const sets = workingSets(w, e.eid); if (!sets.length) continue;
-      let kg = 0, rm = 0, reps = 0, vol = 0;
-      for (const s of sets) { kg = Math.max(kg, s.kg || 0); rm = Math.max(rm, e1rm(s.kg, s.reps)); reps = Math.max(reps, s.reps || 0); vol += (s.kg || 0) * (s.reps || 0); }
+      let kg = 0, rm = 0, reps = 0, vol = 0, sKg = null, sRm = null, sReps = null;
+      for (const s of sets) {
+        if ((s.kg || 0) > kg) { kg = s.kg; sKg = s; }
+        const r = e1rm(s.kg, s.reps); if (r > rm) { rm = r; sRm = s; }
+        if ((s.reps || 0) > reps) { reps = s.reps; sReps = s; }
+        vol += (s.kg || 0) * (s.reps || 0);
+      }
+      const at = s => s ? { set: setLabel(w, e.eid, s), kg: s.kg || 0, reps: s.reps || 0 } : {};
       const b = best.get(e.eid);
       if (b) {
-        if (kg > b.kg) evs.push({ eid: e.eid, type: 'kg', val: kg });
-        if (rm > b.rm + 0.01) evs.push({ eid: e.eid, type: 'rm', val: rm });
-        if (!kg && !b.kg && reps > b.reps) evs.push({ eid: e.eid, type: 'reps', val: reps });
-        if (vol > b.vol) evs.push({ eid: e.eid, type: 'vol', val: vol });
+        if (kg > b.kg) evs.push({ eid: e.eid, type: 'kg', val: kg, ...at(sKg) });
+        if (rm > b.rm + 0.01) evs.push({ eid: e.eid, type: 'rm', val: rm, ...at(sRm) });
+        if (!kg && !b.kg && reps > b.reps) evs.push({ eid: e.eid, type: 'reps', val: reps, ...at(sReps) });
+        if (vol > b.vol) evs.push({ eid: e.eid, type: 'vol', val: vol, set: `${sets.length} sets` });
         b.kg = Math.max(b.kg, kg); b.rm = Math.max(b.rm, rm); b.reps = Math.max(b.reps, reps); b.vol = Math.max(b.vol, vol);
       } else best.set(e.eid, { kg, rm, reps, vol });
     }
@@ -146,6 +182,8 @@ function computePRs() {
 }
 const PRLABEL = { kg: 'Heaviest weight', rm: 'Estimated 1RM', reps: 'Most reps', vol: 'Workout volume' };
 const prVal = p => p.type === 'reps' ? `${p.val} reps` : p.type === 'vol' ? `${fmtNum(p.val)} kg` : `${fmtKg(Math.round(p.val * 10) / 10)} kg`;
+// which set gave the record: "Set 3 · 100 kg × 5"
+const prWhere = p => !p.set ? '' : p.type === 'vol' ? p.set : p.kg ? `${p.set} · ${fmtKg(p.kg)} kg × ${p.reps}` : `${p.set} · ${p.reps} reps`;
 
 function exStats(eid) {
   const sessions = [];
@@ -283,20 +321,19 @@ function exCardHTML(w, e, i, mode) {
   const rows = e.sets.map((s, j) => {
     const lbl = s.t === 'n' || !s.t ? ++n : s.t.toUpperCase();
     const p = prev && prev.sets[j];
-    return `<div class="setrow ${s.done ? 'done' : ''}" data-ei="${i}" data-si="${j}">
+    return `<div class="swipe"><div class="swipe-bg">Delete</div><div class="setrow ${s.done ? 'done' : ''}" data-ei="${i}" data-si="${j}">
       <button class="stype ${s.t || 'n'}" data-a="stype">${lbl}</button>
       <div class="prev">${routine ? '' : p ? esc(setStr(p)) : '–'}</div>
       <input inputmode="decimal" data-f="kg" value="${s.kg ? fmtKg(s.kg) : ''}" placeholder="kg">
       <input inputmode="numeric" data-f="reps" value="${s.reps ?? ''}" placeholder="reps">
-      ${routine ? '' : `<button class="chk" data-a="check">✓</button>`}
-      <button class="del" data-a="delSet">×</button></div>`;
+      ${routine ? '' : `<button class="chk" data-a="check">✓</button>`}</div></div>`;
   }).join('');
   return `<div class="excard" data-ei="${i}">
     <div class="exhead">${thumbHTML(x, 'thumb')}<div class="grow"><div class="exname ellip" data-a="openEx" data-id="${x.id}">${esc(x.name)}</div></div>
       <button class="restchip" data-a="restMenu" data-ei="${i}">⏱ ${e.rest ? fmtClock(e.rest) : 'off'}</button>
       <button class="icon-btn" data-a="exMenu" data-ei="${i}">⋯</button></div>
     <div class="sets ${routine ? 'routine' : ''}">
-      <div class="hd">Set</div><div class="hd l">${routine ? '' : 'Previous'}</div><div class="hd">kg</div><div class="hd">Reps</div>${routine ? '' : '<div class="hd">✓</div>'}<div></div>
+      <div class="hdrow"><div class="hd">Set</div><div class="hd l">${routine ? '' : 'Previous'}</div><div class="hd">kg</div><div class="hd">Reps</div>${routine ? '' : '<div class="hd">✓</div>'}</div>
       ${rows}
     </div>
     <div class="exfoot"><button class="btn sm" data-a="addSet" data-ei="${i}">＋ Add set</button></div>
@@ -314,7 +351,16 @@ function rerenderCard(i) {
 
 // ---------- rest timer ----------
 let audioCtx = null;
-document.addEventListener('pointerdown', () => { if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } else if (audioCtx.state === 'suspended') audioCtx.resume(); }, { passive: true });
+// Browsers only allow sound after a user gesture, and on a touch screen pointerdown does not count:
+// the end of the tap does. Unlock (and re-unlock after the phone suspended audio) on every tap.
+function unlockAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state !== 'running') audioCtx.resume();
+    const b = audioCtx.createBufferSource(); b.buffer = audioCtx.createBuffer(1, 1, 22050); b.connect(audioCtx.destination); b.start(0);
+  } catch (e) {}
+}
+['pointerup', 'touchend', 'click', 'keydown'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true, capture: true }));
 function bellStrike(t, vol) {
   const ctx = audioCtx, out = ctx.createGain(); out.gain.value = vol; out.connect(ctx.destination);
   const base = 880;
@@ -361,8 +407,8 @@ const SFX = {
 };
 function playSfx(key) {
   if (!audioCtx) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-  (SFX[key] || SFX.bell).play(audioCtx.currentTime + 0.02);
+  const go = () => (SFX[key] || SFX.bell).play(audioCtx.currentTime + 0.02);
+  if (audioCtx.state === 'running') go(); else audioCtx.resume().then(go, () => {});
 }
 function beep() {
   if (S.settings.vibrate && navigator.vibrate) navigator.vibrate([150, 120, 150]);
@@ -458,7 +504,7 @@ function viewSummary(t) {
   return `<h1>Great work! 💪</h1>
   <div class="card"><h3>${esc(w.name)}</h3><div class="small mut">${fmtDate(w.start)} · ${fmtDur((w.end - w.start) / 1000)}</div>
    <div class="stats" style="margin-top:10px"><div class="stat"><div class="v">${sets}</div><div class="l">Sets</div></div><div class="stat"><div class="v">${fmtNum(vol)} kg</div><div class="l">Volume</div></div></div></div>
-  ${prs.length ? `<h2>🎆 New records</h2><div class="card">${prs.map(p => `<div class="row between" style="padding:4px 0"><span>${esc(exById(p.eid).name)}<br><span class="tiny mut">${PRLABEL[p.type]}</span></span><span class="badge">${prVal(p)}</span></div>`).join('')}</div>` : ''}
+  ${prs.length ? `<h2>🎆 New records</h2><div class="card">${prs.map(p => `<div class="row between" style="padding:4px 0"><span>${esc(exById(p.eid).name)}<br><span class="tiny mut">${PRLABEL[p.type]}${p.set ? ' · ' + prWhere(p) : ''}</span></span><span class="badge">${prVal(p)}</span></div>`).join('')}</div>` : ''}
   ${r && routineDiffers(r, w) && !t.updated ? `<button class="btn block" data-a="updateRoutine" data-id="${w.id}">Update routine “${esc(r.name)}” with this workout</button>` : ''}
   ${!r && !t.saved ? `<button class="btn block" data-a="saveAsRoutine" data-id="${w.id}">Save as routine</button>` : ''}
   <button class="btn pri block" data-a="summaryDone">Done</button>`;
@@ -588,7 +634,7 @@ function viewRecords() {
    <h2>Training load</h2>
    <div class="seg"><button class="${days === 7 ? 'on' : ''}" data-a="mapDays" data-d="7">Last 7 days</button><button class="${days === 30 ? 'on' : ''}" data-a="mapDays" data-d="30">Last 30 days</button></div>
    ${vals.length ? bodyMapHTML(lv, `<div class="tiny mut" style="text-align:center">${top.map(([m, v]) => `${MUSCLE[m] || m} ${Math.round(v)}`).join(' · ')} sets</div>`) : '<p class="mut small">No workouts in this period.</p>'}
-   ${events.length ? `<h2>Latest records</h2><div class="card">${events.slice(0, 12).map(e => `<div class="row tap" style="padding:6px 0" data-a="openEx" data-id="${e.eid}"><div class="grow"><div class="ellip">${esc(exById(e.eid).name)}</div><div class="tiny mut">${PRLABEL[e.type]} · ${fmtDate(e.w.start)}</div></div><span class="badge">${prVal(e)}</span></div>`).join('')}</div>` : ''}
+   ${events.length ? `<h2>Latest records</h2><div class="card">${events.slice(0, 12).map(e => `<div class="row tap" style="padding:6px 0" data-a="openEx" data-id="${e.eid}"><div class="grow"><div class="ellip">${esc(exById(e.eid).name)}</div><div class="tiny mut">${PRLABEL[e.type]} · ${fmtDate(e.w.start)}</div>${e.set ? `<div class="tiny mut">${prWhere(e)}</div>` : ''}</div><span class="badge">${prVal(e)}</span></div>`).join('')}</div>` : ''}
    <h2>By exercise</h2>
    ${per.map(({ x, st }) => `<div class="li" data-a="openEx" data-id="${x.id}">${thumbHTML(x, 'thumb')}<div class="grow"><div class="ellip">${esc(x.name)}</div>
      <div class="tiny mut">${st.bw ? `Most reps: ${st.reps} · Most in a workout: ${st.totalReps}` : `1RM ≈ ${fmtKg(Math.round(st.rm * 10) / 10)} kg · Heaviest: ${fmtKg(st.kg)} kg · ${st.rmSet ? setStr(st.rmSet) : ''}`}</div></div></div>`).join('')}`;
@@ -918,9 +964,10 @@ const A = {
       if (ed.mode === 'active') startRest(e.rest, e.eid);
     } else s.done = false;
     persist(ed.mode, ed.obj); rerenderCard(+ei);
+    if (s.done && ed.mode === 'active' && isLiveRecord(ed.obj, e.eid, s)) floatRecord(document.querySelector(`.setrow[data-ei="${ei}"][data-si="${si}"]`));
   },
   delSet(el) {
-    const ed = curEditor(); const { ei, si } = el.closest('.setrow').dataset; const e = ed.obj.ex[ei];
+    const ed = curEditor(); if (!ed) return; const { ei, si } = el.closest('.setrow').dataset; const e = ed.obj.ex[ei];
     const [removed] = e.sets.splice(+si, 1);
     persist(ed.mode, ed.obj); rerenderCard(+ei);
     toast('Set removed', () => { e.sets.splice(+si, 0, removed); persist(ed.mode, ed.obj); rerenderCard(+ei); });
@@ -1014,6 +1061,41 @@ document.addEventListener('click', e => {
   const fn = A[el.dataset.a]; if (!fn) return;
   e.stopPropagation(); fn(el);
 });
+// Swipe a set row left to delete it. It must pass a clear threshold (40% of the row, at least 90 px);
+// a shorter swipe springs back. Undo is offered in the toast.
+(() => {
+  let sw = null;
+  document.addEventListener('pointerdown', e => {
+    const row = e.target.closest('.setrow'); if (!row || e.button > 0) return;
+    sw = { row, x: e.clientX, y: e.clientY, dx: 0, on: false, w: row.offsetWidth };
+  }, { passive: true });
+  document.addEventListener('pointermove', e => {
+    if (!sw) return;
+    const dx = e.clientX - sw.x, dy = e.clientY - sw.y;
+    if (!sw.on) {
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { sw = null; return; }   // vertical: let the page scroll
+      if (dx < -12 && Math.abs(dx) > Math.abs(dy) * 1.5) { sw.on = true; sw.row.classList.add('dragging'); if (document.activeElement && sw.row.contains(document.activeElement)) document.activeElement.blur(); }
+      else return;
+    }
+    sw.dx = Math.min(0, dx);
+    sw.row.style.transform = `translateX(${sw.dx}px)`;
+    sw.row.parentNode.classList.toggle('armed', -sw.dx >= Math.max(90, sw.w * 0.4));
+  }, { passive: true });
+  const end = () => {
+    if (!sw) return; const { row, on, dx, w } = sw; sw = null;
+    if (!on) return;
+    row.classList.remove('dragging');
+    // swallow the click that ends the swipe, so the tick button isn't pressed by accident
+    const stop = ev => { ev.stopPropagation(); ev.preventDefault(); };
+    document.addEventListener('click', stop, { capture: true, once: true }); setTimeout(() => document.removeEventListener('click', stop, { capture: true }), 400);
+    if (-dx >= Math.max(90, w * 0.4)) {
+      row.style.transform = 'translateX(-110%)';
+      setTimeout(() => A.delSet(row), 180);
+    } else { row.style.transform = ''; row.parentNode.classList.remove('armed'); }
+  };
+  document.addEventListener('pointerup', end, { passive: true });
+  document.addEventListener('pointercancel', end, { passive: true });
+})();
 document.addEventListener('input', e => {
   const el = e.target;
   if (el.id === 'exq') { S.q = el.value; S.exLimit = 0; renderExList(); return; }
