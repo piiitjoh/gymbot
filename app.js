@@ -357,7 +357,7 @@ function exCardHTML(w, e, i, mode) {
       ${routine ? '' : `<button class="chk" data-a="check">✓</button>`}</div></div>`;
   }).join('');
   return `<div class="excard" data-ei="${i}">
-    <div class="exhead">${thumbHTML(x, 'thumb')}<div class="grow"><div class="exname ellip" data-a="openEx" data-id="${x.id}">${esc(x.name)}</div></div>
+    <div class="exhead">${mode !== 'edit' ? '<button class="draghandle" aria-label="Drag to reorder">⠿</button>' : ''}${thumbHTML(x, 'thumb')}<div class="grow"><div class="exname ellip" data-a="openEx" data-id="${x.id}">${esc(x.name)}</div></div>
       <button class="restchip" data-a="restMenu" data-ei="${i}">⏱ ${e.rest ? fmtClock(e.rest) : 'off'}</button>
       <button class="icon-btn" data-a="exMenu" data-ei="${i}">⋯</button></div>
     <div class="sets ${routine ? 'routine' : ''}">
@@ -1226,6 +1226,64 @@ document.addEventListener('click', e => {
   };
   document.addEventListener('pointerup', end, { passive: true });
   document.addEventListener('pointercancel', end, { passive: true });
+})();
+// Drag an exercise by its handle (routine editor and active workout) to move it above or below another exercise.
+// While dragging, all cards collapse to their header so the whole routine fits on screen.
+(() => {
+  let d = null;
+  const cards = () => [...document.querySelectorAll('#main .excard')];
+  const place = () => {                       // keep the lifted card under the finger
+    d.card.style.transform = 'none';
+    const top = d.card.getBoundingClientRect().top;
+    d.card.style.transform = `translateY(${d.y - d.grab - top}px)`;
+  };
+  const reorder = () => {                     // move the card in the DOM to where the finger is
+    const others = cards().filter(c => c !== d.card);
+    const before = others.find(c => { const r = c.getBoundingClientRect(); return d.y < r.top + r.height / 2; });
+    const ref = before || others[others.length - 1].nextSibling;
+    if (d.card.nextSibling !== ref && d.card !== ref) d.card.parentNode.insertBefore(d.card, ref);
+    place();
+  };
+  const tick = () => {                        // auto-scroll near the top/bottom edge
+    if (!d) return;
+    const head = document.querySelector('.whead'), topEdge = (head ? head.getBoundingClientRect().bottom : 0) + 50;
+    const nav = document.getElementById('nav'), botEdge = (nav ? nav.getBoundingClientRect().top : innerHeight) - 50;
+    const v = d.y < topEdge ? -Math.min(16, (topEdge - d.y) / 3) : d.y > botEdge ? Math.min(16, (d.y - botEdge) / 3) : 0;
+    if (v) { window.scrollBy(0, v); reorder(); }
+    d.raf = requestAnimationFrame(tick);
+  };
+  document.addEventListener('pointerdown', e => {
+    const h = e.target.closest('.draghandle'); if (!h || e.button > 0) return;
+    const ed = curEditor(); if (!ed || ed.mode === 'edit' || ed.obj.ex.length < 2) return;
+    e.preventDefault();
+    if (document.activeElement) document.activeElement.blur();
+    const card = h.closest('.excard');
+    d = { card, y: e.clientY, grab: 0, id: e.pointerId, from: cards().map(c => +c.dataset.ei) };
+    try { h.setPointerCapture(e.pointerId); } catch (_) {}
+    document.body.classList.add('reordering'); card.classList.add('lifted');
+    // after collapsing, scroll so the grabbed card sits under the finger again
+    const r = card.getBoundingClientRect(); d.grab = r.height / 2;
+    window.scrollBy(0, r.top + d.grab - e.clientY);
+    place();
+    if (navigator.vibrate) navigator.vibrate(10);
+    d.raf = requestAnimationFrame(tick);
+  });
+  document.addEventListener('pointermove', e => {
+    if (!d || e.pointerId !== d.id) return;
+    d.y = e.clientY; reorder();
+  });
+  const end = e => {
+    if (!d || (e && e.pointerId !== d.id)) return;
+    cancelAnimationFrame(d.raf);
+    const { card } = d; d = null;
+    const order = cards().map(c => +c.dataset.ei);
+    card.style.transform = ''; card.classList.remove('lifted'); document.body.classList.remove('reordering');
+    const ed = curEditor(); if (!ed) return;
+    if (order.some((v, k) => v !== k)) { ed.obj.ex = order.map(k => ed.obj.ex[k]); persist(ed.mode, ed.obj); }
+    render();
+  };
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
 })();
 document.addEventListener('input', e => {
   const el = e.target;

@@ -62,6 +62,13 @@ h3{font-size:15px;margin:0}
 .excard{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 8px 6px;margin:10px 0}
 .exhead{display:flex;align-items:center;gap:8px;padding:0 4px 6px}
 .exhead .thumb{width:40px;height:40px}
+/* drag to reorder (routine editor and active workout) */
+.draghandle{flex:none;width:28px;height:40px;margin-left:-4px;display:inline-flex;align-items:center;justify-content:center;font-size:20px;color:var(--mut);touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+body.reordering{user-select:none;-webkit-user-select:none;cursor:grabbing}
+body.reordering .excard .sets,body.reordering .excard .exfoot{display:none}
+body.reordering .excard{padding-bottom:4px}
+body.reordering .excard .exhead{padding-bottom:0}
+.excard.lifted{position:relative;z-index:5;border-color:var(--acc);box-shadow:0 8px 24px rgba(0,0,0,.5);opacity:.95}
 .exname{font-weight:700;color:var(--acc);font-size:16px}
 .restchip{font-size:12px;color:var(--mut);padding:3px 8px;border-radius:999px;background:var(--card2);border:1px solid var(--line);font-variant-numeric:tabular-nums}
 .sets{display:flex;flex-direction:column;gap:4px}
